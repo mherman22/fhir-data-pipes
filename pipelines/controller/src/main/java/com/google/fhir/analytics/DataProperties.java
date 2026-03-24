@@ -27,8 +27,10 @@ import java.util.Set;
 import javax.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.beam.runners.direct.DirectRunner;
 import org.apache.beam.runners.flink.FlinkPipelineOptions;
 import org.apache.beam.runners.flink.FlinkRunner;
+import org.apache.beam.sdk.PipelineRunner;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -127,6 +129,20 @@ public class DataProperties {
 
   private boolean generateParquetFiles;
 
+  private String runner;
+
+  /**
+   * Returns the configured PipelineRunner class. If "DirectRunner" is specified in the
+   * application.yaml, DirectRunner is used (runs in a single JVM, no serialization needed).
+   * Otherwise, defaults to FlinkRunner.
+   */
+  Class<? extends PipelineRunner<?>> getRunnerClass() {
+    if ("DirectRunner".equalsIgnoreCase(runner)) {
+      return DirectRunner.class;
+    }
+    return FlinkRunner.class;
+  }
+
   @PostConstruct
   void validateProperties() {
     CronExpression.parse(incrementalSchedule);
@@ -151,10 +167,14 @@ public class DataProperties {
 
   private PipelineConfig.PipelineConfigBuilder addFlinkOptions(FhirEtlOptions options) {
     PipelineConfig.PipelineConfigBuilder pipelineConfigBuilder = PipelineConfig.builder();
-    options.setRunner(FlinkRunner.class);
-    FlinkPipelineOptions flinkOptions = options.as(FlinkPipelineOptions.class);
-    if (numThreads > 0) {
-      flinkOptions.setParallelism(numThreads);
+    Class<? extends PipelineRunner<?>> runnerClass = getRunnerClass();
+    options.setRunner(runnerClass);
+    logger.info("Using pipeline runner: {}", runnerClass.getSimpleName());
+    if (FlinkRunner.class.equals(runnerClass)) {
+      FlinkPipelineOptions flinkOptions = options.as(FlinkPipelineOptions.class);
+      if (numThreads > 0) {
+        flinkOptions.setParallelism(numThreads);
+      }
     }
 
     pipelineConfigBuilder.fhirEtlOptions(options);

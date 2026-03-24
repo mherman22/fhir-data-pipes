@@ -416,9 +416,12 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
             ? dataProperties.createRecreateViewsOptions(getCurrentDwhRoot())
             : dataProperties.createBatchOptions());
     FhirEtlOptions options = pipelineConfig.getFhirEtlOptions();
-    FlinkPipelineOptions flinkOptions = options.as(FlinkPipelineOptions.class);
-    if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
-      flinkOptions.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
+    Class<? extends PipelineRunner<?>> runnerClass = dataProperties.getRunnerClass();
+    if (FlinkRunner.class.equals(runnerClass)) {
+      FlinkPipelineOptions flinkOptions = options.as(FlinkPipelineOptions.class);
+      if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
+        flinkOptions.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
+      }
     }
     // sanity check; should always pass!
     FhirEtl.validateOptions(options);
@@ -430,7 +433,7 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
             pipelineConfig,
             isRecreateViews ? RunMode.VIEWS : RunMode.FULL,
             avroConversionUtil,
-            FlinkRunner.class);
+            runnerClass);
     if (isRecreateViews) {
       logger.info(
           "Running pipeline for recreating views from DWH {}", options.getParquetInputDwhRoot());
@@ -458,9 +461,12 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
     }
     String since = fetchSinceTimestamp(options);
     options.setSince(since);
-    FlinkPipelineOptions flinkOptionsForBatch = options.as(FlinkPipelineOptions.class);
-    if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
-      flinkOptionsForBatch.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
+    Class<? extends PipelineRunner<?>> runnerClass = dataProperties.getRunnerClass();
+    if (FlinkRunner.class.equals(runnerClass)) {
+      FlinkPipelineOptions flinkOptionsForBatch = options.as(FlinkPipelineOptions.class);
+      if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
+        flinkOptionsForBatch.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
+      }
     }
     // sanity check; should always pass!
     FhirEtl.validateOptions(options);
@@ -470,7 +476,7 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
     mergerOptions.setDwh1(currentDwh.getRoot());
     mergerOptions.setDwh2(incrementalDwhRoot);
     mergerOptions.setMergedDwh(finalDwhRoot);
-    mergerOptions.setRunner(FlinkRunner.class);
+    mergerOptions.setRunner(runnerClass);
     mergerOptions.setViewDefinitionsDir(options.getViewDefinitionsDir());
     // The number of shards is set based on the parallelism available for the FlinkRunner
     // Pipeline
@@ -488,18 +494,20 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
     if (dataProperties.getRowGroupSizeForParquetFiles() > 0) {
       mergerOptions.setRowGroupSizeForParquetFiles(dataProperties.getRowGroupSizeForParquetFiles());
     }
-    FlinkPipelineOptions flinkOptionsForMerge = mergerOptions.as(FlinkPipelineOptions.class);
-    if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
-      flinkOptionsForMerge.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
-    }
-    flinkOptionsForMerge.setFasterCopy(true);
-    if (dataProperties.getNumThreads() > 0) {
-      flinkOptionsForMerge.setParallelism(dataProperties.getNumThreads());
+    if (FlinkRunner.class.equals(runnerClass)) {
+      FlinkPipelineOptions flinkOptionsForMerge = mergerOptions.as(FlinkPipelineOptions.class);
+      if (!Strings.isNullOrEmpty(flinkConfiguration.getFlinkConfDir())) {
+        flinkOptionsForMerge.setFlinkConfDir(flinkConfiguration.getFlinkConfDir());
+      }
+      flinkOptionsForMerge.setFasterCopy(true);
+      if (dataProperties.getNumThreads() > 0) {
+        flinkOptionsForMerge.setParallelism(dataProperties.getNumThreads());
+      }
     }
     // Creating a thread for running both pipelines, one after the other.
     currentPipeline =
         new PipelineThread(
-            options, mergerOptions, this, pipelineConfig, avroConversionUtil, FlinkRunner.class);
+            options, mergerOptions, this, pipelineConfig, avroConversionUtil, runnerClass);
     logger.info("Running incremental pipeline for DWH {} since {}", currentDwh.getRoot(), since);
     currentPipeline.start();
   }
