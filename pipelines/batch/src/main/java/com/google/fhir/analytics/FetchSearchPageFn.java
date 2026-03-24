@@ -303,7 +303,7 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
 
   protected void processBundle(@Nullable Bundle bundle, @Nullable Set<String> resourceTypes)
       throws IOException, SQLException, ViewApplicationException, ProfileException {
-    if (bundle != null && bundle.getEntry() != null) {
+    if (bundle != null && bundle.getEntry() != null && !bundle.getEntry().isEmpty()) {
       numFetchedResources.inc(bundle.getEntry().size());
       if (parquetUtil != null) {
         long startTime = System.currentTimeMillis();
