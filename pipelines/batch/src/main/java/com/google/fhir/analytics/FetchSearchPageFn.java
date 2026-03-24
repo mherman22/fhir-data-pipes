@@ -67,25 +67,7 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
 
   private final Counter totalPushTimeMillis;
 
-  private final String sourceUrl;
-
-  private final String sourceUser;
-
-  private final String sourcePw;
-
-  private final String oAuthTokenEndpoint;
-
-  private final String oAuthClientId;
-
-  private final String oAuthClientSecret;
-
-  private final boolean checkPatientEndpoint;
-
   protected final String sinkPath;
-
-  private final String sinkUsername;
-
-  private final String sinkPassword;
 
   protected final String stageIdentifier;
 
@@ -135,15 +117,6 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
   FetchSearchPageFn(FhirEtlOptions options, String stageIdentifier) {
     this.outputParquetViewPath = options.getOutputParquetViewPath();
     this.sinkPath = options.getFhirSinkPath();
-    this.sinkUsername = options.getSinkUserName();
-    this.sinkPassword = options.getSinkPassword();
-    this.sourceUrl = options.getFhirServerUrl();
-    this.sourceUser = options.getFhirServerUserName();
-    this.sourcePw = options.getFhirServerPassword();
-    this.oAuthTokenEndpoint = options.getFhirServerOAuthTokenEndpoint();
-    this.oAuthClientId = options.getFhirServerOAuthClientId();
-    this.oAuthClientSecret = options.getFhirServerOAuthClientSecret();
-    this.checkPatientEndpoint = options.getCheckPatientEndpoint();
     this.stageIdentifier = stageIdentifier;
     this.outputParquetPath = options.getOutputParquetPath();
     this.inputParquetPath = options.getParquetInputDwhRoot();
@@ -211,21 +184,10 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
     // to change the `setOverrideResourceIdWithBundleEntryFullUrl` globally above such that the
     // parsers used in the HAPI client code is impacted too.
     parser = fhirContext.newJsonParser();
-    fhirStoreUtil =
-        FhirStoreUtil.createFhirStoreUtil(
-            sinkPath, sinkUsername, sinkPassword, fhirContext.getRestfulClientFactory());
-    fetchUtil =
-        new FetchUtil(
-            sourceUrl,
-            sourceUser,
-            sourcePw,
-            oAuthTokenEndpoint,
-            oAuthClientId,
-            oAuthClientSecret,
-            checkPatientEndpoint,
-            fhirContext);
-    Preconditions.checkNotNull(fetchUtil);
-    fhirSearchUtil = new FhirSearchUtil(fetchUtil);
+    // NOTE: fetchUtil, fhirStoreUtil, and fhirSearchUtil are initialized in
+    // initCredentialDependentState() called from @StartBundle, because credentials must be read
+    // from PipelineOptions at runtime (not captured at construction time) to survive serialization
+    // across distributed runners. See PipelineOptions Javadoc on serialization.
     // TODO remove generateParquetFiles and instead rely on not setting outputParquetPath.
     if (generateParquetFiles
         && (!Strings.isNullOrEmpty(outputParquetPath)
@@ -251,6 +213,49 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
       //  https://github.com/google/fhir-data-pipes/issues/288
       jdbcWriter = new JdbcResourceWriter(jdbcSink, viewDefinitionsDir, fhirContext);
     }
+  }
+
+  /**
+   * Initializes credential-dependent objects (fetchUtil, fhirStoreUtil, fhirSearchUtil) using
+   * credentials read from PipelineOptions at runtime. This follows the Beam best practice of not
+   * capturing PipelineOptions at pipeline construction time, ensuring credentials survive
+   * serialization across distributed runners (e.g., FlinkRunner).
+   *
+   * <p>Called once from {@code @StartBundle} via lazy initialization.
+   */
+  private synchronized void initCredentialDependentState(FhirEtlOptions options) {
+    if (fetchUtil != null) {
+      return; // Already initialized.
+    }
+    FhirContext fhirContext = avroConversionUtil.getFhirContext();
+    fhirStoreUtil =
+        FhirStoreUtil.createFhirStoreUtil(
+            sinkPath,
+            options.getSinkUserName(),
+            options.getSinkPassword(),
+            fhirContext.getRestfulClientFactory());
+    fetchUtil =
+        new FetchUtil(
+            options.getFhirServerUrl(),
+            options.getFhirServerUserName(),
+            options.getFhirServerPassword(),
+            options.getFhirServerOAuthTokenEndpoint(),
+            options.getFhirServerOAuthClientId(),
+            options.getFhirServerOAuthClientSecret(),
+            options.getCheckPatientEndpoint(),
+            fhirContext);
+    Preconditions.checkNotNull(fetchUtil);
+    fhirSearchUtil = new FhirSearchUtil(fetchUtil);
+  }
+
+  /**
+   * Initializes credential-dependent state from PipelineOptions on the first bundle. Subclasses
+   * that override {@code @StartBundle} must call {@code super.startBundle(context)}.
+   */
+  @StartBundle
+  public void startBundle(StartBundleContext context) {
+    FhirEtlOptions options = context.getPipelineOptions().as(FhirEtlOptions.class);
+    initCredentialDependentState(options);
   }
 
   /**

@@ -121,10 +121,14 @@ public class FetchResourcesTest {
             @Override
             public void setup() throws SQLException, ProfileException {
               super.setup();
+              // Set fetchUtil so initCredentialDependentState() lazy init guard is satisfied
+              // and doesn't overwrite our mocks when @StartBundle runs.
+              this.fetchUtil = Mockito.mock(FetchUtil.class);
               this.fhirSearchUtil = Mockito.mock(FhirSearchUtil.class);
               when(fhirSearchUtil.searchByUrl(
                       any(String.class), any(Integer.class), any(SummaryEnum.class)))
                   .thenReturn(bundle);
+              this.fhirStoreUtil = Mockito.mock(FhirStoreUtil.class);
               this.parquetUtil = Mockito.mock(ParquetUtil.class);
             }
           };

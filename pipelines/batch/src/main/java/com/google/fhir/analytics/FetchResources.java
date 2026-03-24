@@ -115,8 +115,10 @@ public class FetchResources
       super(options, stageIdentifier);
     }
 
+    @Override
     @StartBundle
     public void startBundle(StartBundleContext context) {
+      super.startBundle(context);
       patientCount = Maps.newHashMap();
     }
 
