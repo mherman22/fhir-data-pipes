@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2025 Google LLC
+ * Copyright 2020-2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,13 @@ public interface FhirEtlOptions extends BasePipelineOptions {
 
   void setFhirFetchMode(FhirFetchMode fhirFetchMode);
 
-  @Description("Fhir source server URL, e.g., http://localhost:8091/fhir, etc.")
+  @Description(
+      "Comma-separated list of FHIR source server URLs, e.g., "
+          + "http://localhost:8091/fhir or "
+          + "http://server1:8091/fhir,http://server2:8091/fhir for multiple sources. "
+          + "Multiple URLs are useful in HIE setups where data comes from several FHIR servers "
+          + "(e.g., multiple OpenMRS instances each with their own FHIR module). "
+          + "All servers must share the same authentication credentials.")
   @Required
   @Default.String("")
   String getFhirServerUrl();

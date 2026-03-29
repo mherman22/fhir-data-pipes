@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2025 Google LLC
+ * Copyright 2020-2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -346,17 +346,21 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
   }
 
   private void validateFhirServerParams(FhirEtlOptions options) {
-    FetchUtil fetchUtil =
-        new FetchUtil(
-            options.getFhirServerUrl(),
-            options.getFhirServerUserName(),
-            options.getFhirServerPassword(),
-            options.getFhirServerOAuthTokenEndpoint(),
-            options.getFhirServerOAuthClientId(),
-            options.getFhirServerOAuthClientSecret(),
-            options.getCheckPatientEndpoint(),
-            avroConversionUtil.getFhirContext());
-    fetchUtil.testFhirConnection();
+    List<String> serverUrls = FhirEtl.getServerUrls(options);
+    for (String serverUrl : serverUrls) {
+      logger.info("Validating FHIR server connection for {}", serverUrl);
+      FetchUtil fetchUtil =
+          new FetchUtil(
+              serverUrl,
+              options.getFhirServerUserName(),
+              options.getFhirServerPassword(),
+              options.getFhirServerOAuthTokenEndpoint(),
+              options.getFhirServerOAuthClientId(),
+              options.getFhirServerOAuthClientSecret(),
+              options.getCheckPatientEndpoint(),
+              avroConversionUtil.getFhirContext());
+      fetchUtil.testFhirConnection();
+    }
   }
 
   synchronized boolean isBatchRun() {
