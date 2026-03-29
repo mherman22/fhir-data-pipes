@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2025 Google LLC
+ * Copyright 2020-2026 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -87,13 +87,23 @@ public class FhirEtl {
     return new FhirSearchUtil(createFetchUtil(options, fhirContext));
   }
 
+  static FhirSearchUtil createFhirSearchUtil(
+      String serverUrl, FhirEtlOptions options, FhirContext fhirContext) {
+    return new FhirSearchUtil(createFetchUtil(serverUrl, options, fhirContext));
+  }
+
   static BulkExportUtil createBulkExportUtil(FhirEtlOptions options, FhirContext fhirContext) {
     return new BulkExportUtil(new BulkExportApiClient(createFetchUtil(options, fhirContext)));
   }
 
   static FetchUtil createFetchUtil(FhirEtlOptions options, FhirContext fhirContext) {
+    return createFetchUtil(options.getFhirServerUrl(), options, fhirContext);
+  }
+
+  static FetchUtil createFetchUtil(
+      String serverUrl, FhirEtlOptions options, FhirContext fhirContext) {
     return new FetchUtil(
-        options.getFhirServerUrl(),
+        serverUrl,
         options.getFhirServerUserName(),
         options.getFhirServerPassword(),
         options.getFhirServerOAuthTokenEndpoint(),
@@ -101,6 +111,14 @@ public class FhirEtl {
         options.getFhirServerOAuthClientSecret(),
         options.getCheckPatientEndpoint(),
         fhirContext);
+  }
+
+  /** Returns the list of FHIR server URLs from the comma-separated option value. */
+  static List<String> getServerUrls(FhirEtlOptions options) {
+    return Splitter.on(',')
+        .trimResults()
+        .omitEmptyStrings()
+        .splitToList(options.getFhirServerUrl());
   }
 
   /**
@@ -144,20 +162,36 @@ public class FhirEtl {
   @Nullable
   private static List<Pipeline> buildFhirSearchPipeline(
       FhirEtlOptions options, AvroConversionUtil avroConversionUtil) throws ProfileException {
-    FhirSearchUtil fhirSearchUtil =
-        createFhirSearchUtil(options, avroConversionUtil.getFhirContext());
+    List<String> serverUrls = getServerUrls(options);
     Map<String, List<SearchSegmentDescriptor>> segmentMap = Maps.newHashMap();
-    try {
-      // TODO in the activePeriod case, among patientAssociatedResources, only fetch Encounter here.
-      // TODO Capture the total resources to be processed as a metric which can be used to derive
-      //  the stats of how many records has been completed.
-      segmentMap = fhirSearchUtil.createSegments(options);
-    } catch (IllegalArgumentException e) {
-      log.error(
-          "Either the date format in the active period is wrong or none of the resources support"
-              + " 'date' feature"
-              + e.getMessage());
-      throw e;
+    // The first server URL's FhirSearchUtil is kept for findPatientAssociatedResources.
+    FhirSearchUtil firstFhirSearchUtil = null;
+    for (String serverUrl : serverUrls) {
+      FhirSearchUtil fhirSearchUtil =
+          createFhirSearchUtil(serverUrl, options, avroConversionUtil.getFhirContext());
+      if (firstFhirSearchUtil == null) {
+        firstFhirSearchUtil = fhirSearchUtil;
+      }
+      try {
+        // TODO in the activePeriod case, among patientAssociatedResources, only fetch Encounter
+        // here.
+        // TODO Capture the total resources to be processed as a metric which can be used to derive
+        //  the stats of how many records has been completed.
+        Map<String, List<SearchSegmentDescriptor>> serverSegmentMap =
+            fhirSearchUtil.createSegments(options);
+        for (Map.Entry<String, List<SearchSegmentDescriptor>> entry : serverSegmentMap.entrySet()) {
+          segmentMap
+              .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+              .addAll(entry.getValue());
+        }
+      } catch (IllegalArgumentException e) {
+        log.error(
+            "Either the date format in the active period is wrong or none of the resources support"
+                + " 'date' feature for server {}: {}",
+            serverUrl,
+            e.getMessage());
+        throw e;
+      }
     }
     if (segmentMap.isEmpty()) {
       return null;
@@ -168,12 +202,12 @@ public class FhirEtl {
     for (Map.Entry<String, List<SearchSegmentDescriptor>> entry : segmentMap.entrySet()) {
       String resourceType = entry.getKey();
       PCollection<SearchSegmentDescriptor> inputSegments =
-          pipeline.apply(Create.of(entry.getValue()));
+          pipeline.apply("CreateSegments_" + resourceType, Create.of(entry.getValue()));
       allPatientIds.add(fetchSegmentsAndReturnPatientIds(inputSegments, resourceType, options));
     }
     if (!options.getActivePeriod().isEmpty()) {
       Set<String> patientAssociatedResources =
-          fhirSearchUtil.findPatientAssociatedResources(segmentMap.keySet());
+          firstFhirSearchUtil.findPatientAssociatedResources(segmentMap.keySet());
       fetchPatientHistory(
           pipeline, allPatientIds, patientAssociatedResources, options, avroConversionUtil);
     }

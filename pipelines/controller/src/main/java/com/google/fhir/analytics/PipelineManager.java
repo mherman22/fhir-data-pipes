@@ -346,17 +346,21 @@ public class PipelineManager implements ApplicationListener<ApplicationReadyEven
   }
 
   private void validateFhirServerParams(FhirEtlOptions options) {
-    FetchUtil fetchUtil =
-        new FetchUtil(
-            options.getFhirServerUrl(),
-            options.getFhirServerUserName(),
-            options.getFhirServerPassword(),
-            options.getFhirServerOAuthTokenEndpoint(),
-            options.getFhirServerOAuthClientId(),
-            options.getFhirServerOAuthClientSecret(),
-            options.getCheckPatientEndpoint(),
-            avroConversionUtil.getFhirContext());
-    fetchUtil.testFhirConnection();
+    List<String> serverUrls = FhirEtl.getServerUrls(options);
+    for (String serverUrl : serverUrls) {
+      logger.info("Validating FHIR server connection for {}", serverUrl);
+      FetchUtil fetchUtil =
+          new FetchUtil(
+              serverUrl,
+              options.getFhirServerUserName(),
+              options.getFhirServerPassword(),
+              options.getFhirServerOAuthTokenEndpoint(),
+              options.getFhirServerOAuthClientId(),
+              options.getFhirServerOAuthClientSecret(),
+              options.getCheckPatientEndpoint(),
+              avroConversionUtil.getFhirContext());
+      fetchUtil.testFhirConnection();
+    }
   }
 
   synchronized boolean isBatchRun() {

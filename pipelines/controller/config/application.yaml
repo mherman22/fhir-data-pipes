@@ -19,8 +19,12 @@ fhirdata:
   # server. Currently supported modes : FHIR_SEARCH, HAPI_JDBC, BULK_EXPORT and OPENMRS_JDBC
   fhirFetchMode: "FHIR_SEARCH"
 
-  # The base URL of the source FHIR server. If `dbConfig` is not set, resources
+  # The base URL of the source FHIR server(s). If `dbConfig` is not set, resources
   # are fetched from this URL through the FHIR Search API.
+  # For HIE setups with multiple FHIR sources (e.g., multiple OpenMRS instances
+  # each with their own FHIR module), use comma-separated URLs:
+  #   fhirServerUrl: "http://server1:8091/fhir,http://server2:8091/fhir"
+  # All servers must share the same authentication credentials.
   # Equivalent to the pipeline `fhirServerUrl` parameter.
   fhirServerUrl: "http://172.17.0.1:8091/fhir"
   #fhirServerUrl: "http://localhost:8099/openmrs/ws/fhir2/R4"

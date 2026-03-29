@@ -28,6 +28,7 @@ import com.google.fhir.analytics.model.DatabaseConfiguration;
 import com.google.fhir.analytics.view.ViewApplicationException;
 import java.io.IOException;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Set;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.metrics.Counter;
@@ -137,7 +138,10 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
     this.sinkPath = options.getFhirSinkPath();
     this.sinkUsername = options.getSinkUserName();
     this.sinkPassword = options.getSinkPassword();
-    this.sourceUrl = options.getFhirServerUrl();
+    // Use the first URL from comma-separated list; for modes that don't use FHIR search
+    // (e.g., HAPI_JDBC, Parquet), this may be empty.
+    List<String> serverUrls = FhirEtl.getServerUrls(options);
+    this.sourceUrl = serverUrls.isEmpty() ? "" : serverUrls.get(0);
     this.sourceUser = options.getFhirServerUserName();
     this.sourcePw = options.getFhirServerPassword();
     this.oAuthTokenEndpoint = options.getFhirServerOAuthTokenEndpoint();
