@@ -202,7 +202,7 @@ public class FhirEtl {
     for (Map.Entry<String, List<SearchSegmentDescriptor>> entry : segmentMap.entrySet()) {
       String resourceType = entry.getKey();
       PCollection<SearchSegmentDescriptor> inputSegments =
-          pipeline.apply("Create_" + resourceType, Create.of(entry.getValue()));
+          pipeline.apply("CreateSegments_" + resourceType, Create.of(entry.getValue()));
       allPatientIds.add(fetchSegmentsAndReturnPatientIds(inputSegments, resourceType, options));
     }
     if (!options.getActivePeriod().isEmpty()) {
