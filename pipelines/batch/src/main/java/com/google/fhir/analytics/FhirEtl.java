@@ -38,7 +38,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.apache.avro.generic.GenericRecord;
@@ -110,7 +113,10 @@ public class FhirEtl {
         options.getFhirServerOAuthClientId(),
         options.getFhirServerOAuthClientSecret(),
         options.getCheckPatientEndpoint(),
-        fhirContext);
+        fhirContext,
+        options.getHttpSocketTimeoutSec() * 1000,
+        options.getHttpConnectTimeoutSec() * 1000,
+        options.getHttpPoolMaxTotal());
   }
 
   /** Returns the list of FHIR server URLs from the comma-separated option value. */
@@ -164,35 +170,83 @@ public class FhirEtl {
       FhirEtlOptions options, AvroConversionUtil avroConversionUtil) throws ProfileException {
     List<String> serverUrls = getServerUrls(options);
     Map<String, List<SearchSegmentDescriptor>> segmentMap = Maps.newHashMap();
-    // The first server URL's FhirSearchUtil is kept for findPatientAssociatedResources.
-    FhirSearchUtil firstFhirSearchUtil = null;
-    for (String serverUrl : serverUrls) {
-      FhirSearchUtil fhirSearchUtil =
-          createFhirSearchUtil(serverUrl, options, avroConversionUtil.getFhirContext());
-      if (firstFhirSearchUtil == null) {
-        firstFhirSearchUtil = fhirSearchUtil;
-      }
+    List<FhirSearchUtil> allSearchUtils = new ArrayList<>();
+
+    if (serverUrls.size() > 1) {
+      // Parallelize segment generation across multiple servers for faster startup.
+      log.info("Generating segments in parallel for {} servers.", serverUrls.size());
+      ExecutorService executor = Executors.newFixedThreadPool(serverUrls.size());
       try {
-        // TODO in the activePeriod case, among patientAssociatedResources, only fetch Encounter
-        // here.
-        // TODO Capture the total resources to be processed as a metric which can be used to derive
-        //  the stats of how many records has been completed.
-        Map<String, List<SearchSegmentDescriptor>> serverSegmentMap =
-            fhirSearchUtil.createSegments(options);
-        for (Map.Entry<String, List<SearchSegmentDescriptor>> entry : serverSegmentMap.entrySet()) {
-          segmentMap
-              .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
-              .addAll(entry.getValue());
+        List<CompletableFuture<Map<String, List<SearchSegmentDescriptor>>>> futures =
+            new ArrayList<>();
+        for (String serverUrl : serverUrls) {
+          FhirSearchUtil fhirSearchUtil =
+              createFhirSearchUtil(serverUrl, options, avroConversionUtil.getFhirContext());
+          allSearchUtils.add(fhirSearchUtil);
+          futures.add(
+              CompletableFuture.supplyAsync(
+                  () -> fhirSearchUtil.createSegments(options), executor));
         }
-      } catch (IllegalArgumentException e) {
-        log.error(
-            "Either the date format in the active period is wrong or none of the resources support"
-                + " 'date' feature for server {}: {}",
-            serverUrl,
-            e.getMessage());
-        throw e;
+        for (int i = 0; i < futures.size(); i++) {
+          try {
+            Map<String, List<SearchSegmentDescriptor>> serverSegmentMap = futures.get(i).get();
+            for (Map.Entry<String, List<SearchSegmentDescriptor>> entry :
+                serverSegmentMap.entrySet()) {
+              segmentMap
+                  .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+                  .addAll(entry.getValue());
+            }
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(
+                "Interrupted while generating segments for server " + serverUrls.get(i), e);
+          } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            log.error(
+                "Failed to generate segments for server {}: {}",
+                serverUrls.get(i),
+                cause.getMessage());
+            if (cause instanceof IllegalArgumentException) {
+              throw (IllegalArgumentException) cause;
+            }
+            throw new RuntimeException(
+                "Failed to generate segments for server " + serverUrls.get(i), cause);
+          }
+        }
+      } finally {
+        executor.shutdown();
+      }
+    } else {
+      // Single server: no parallelism needed.
+      for (String serverUrl : serverUrls) {
+        FhirSearchUtil fhirSearchUtil =
+            createFhirSearchUtil(serverUrl, options, avroConversionUtil.getFhirContext());
+        allSearchUtils.add(fhirSearchUtil);
+        try {
+          // TODO in the activePeriod case, among patientAssociatedResources, only fetch Encounter
+          // here.
+          // TODO Capture the total resources to be processed as a metric which can be used to
+          // derive
+          //  the stats of how many records has been completed.
+          Map<String, List<SearchSegmentDescriptor>> serverSegmentMap =
+              fhirSearchUtil.createSegments(options);
+          for (Map.Entry<String, List<SearchSegmentDescriptor>> entry :
+              serverSegmentMap.entrySet()) {
+            segmentMap
+                .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
+                .addAll(entry.getValue());
+          }
+        } catch (IllegalArgumentException e) {
+          log.error(
+              "Either the date format in the active period is wrong or none of the resources"
+                  + " support 'date' feature for server {}: {}",
+              serverUrl,
+              e.getMessage());
+          throw e;
+        }
       }
     }
+
     if (segmentMap.isEmpty()) {
       return null;
     }
@@ -206,8 +260,11 @@ public class FhirEtl {
       allPatientIds.add(fetchSegmentsAndReturnPatientIds(inputSegments, resourceType, options));
     }
     if (!options.getActivePeriod().isEmpty()) {
-      Set<String> patientAssociatedResources =
-          firstFhirSearchUtil.findPatientAssociatedResources(segmentMap.keySet());
+      // Merge patient-associated resources from all servers to avoid first-server bias.
+      Set<String> patientAssociatedResources = Sets.newHashSet();
+      for (FhirSearchUtil util : allSearchUtils) {
+        patientAssociatedResources.addAll(util.findPatientAssociatedResources(segmentMap.keySet()));
+      }
       fetchPatientHistory(
           pipeline, allPatientIds, patientAssociatedResources, options, avroConversionUtil);
     }

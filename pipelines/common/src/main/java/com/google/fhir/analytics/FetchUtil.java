@@ -75,6 +75,12 @@ public class FetchUtil {
 
   private final FhirContext fhirContext;
 
+  private final int socketTimeoutMs;
+
+  private final int connectTimeoutMs;
+
+  private final int poolMaxTotal;
+
   @Nullable private final IClientInterceptor authInterceptor;
 
   FetchUtil(
@@ -86,6 +92,32 @@ public class FetchUtil {
       String oAuthClientSecret,
       boolean checkPatientEndpoint,
       FhirContext fhirContext) {
+    this(
+        sourceFhirUrl,
+        sourceUser,
+        sourcePw,
+        oAuthTokenEndpoint,
+        oAuthClientId,
+        oAuthClientSecret,
+        checkPatientEndpoint,
+        fhirContext,
+        200 * 1000,
+        30 * 1000,
+        30);
+  }
+
+  FetchUtil(
+      String sourceFhirUrl,
+      String sourceUser,
+      String sourcePw,
+      String oAuthTokenEndpoint,
+      String oAuthClientId,
+      String oAuthClientSecret,
+      boolean checkPatientEndpoint,
+      FhirContext fhirContext,
+      int socketTimeoutMs,
+      int connectTimeoutMs,
+      int poolMaxTotal) {
     this.fhirUrl = sourceFhirUrl;
     this.sourceUser = Strings.nullToEmpty(sourceUser);
     this.oAuthTokenEndpoint = Strings.nullToEmpty(oAuthTokenEndpoint);
@@ -93,6 +125,9 @@ public class FetchUtil {
     this.oAuthClientSecret = Strings.nullToEmpty(oAuthClientSecret);
     this.checkPatientEndpoint = checkPatientEndpoint;
     this.fhirContext = fhirContext;
+    this.socketTimeoutMs = socketTimeoutMs;
+    this.connectTimeoutMs = connectTimeoutMs;
+    this.poolMaxTotal = poolMaxTotal;
     Preconditions.checkState(
         this.oAuthTokenEndpoint.isEmpty()
             || (!this.oAuthClientId.isEmpty() && !this.oAuthClientSecret.isEmpty()));
@@ -206,7 +241,9 @@ public class FetchUtil {
   }
 
   public IGenericClient getSourceClient(boolean enableRequestLogging) {
-    fhirContext.getRestfulClientFactory().setSocketTimeout(200 * 1000);
+    fhirContext.getRestfulClientFactory().setSocketTimeout(socketTimeoutMs);
+    fhirContext.getRestfulClientFactory().setConnectTimeout(connectTimeoutMs);
+    fhirContext.getRestfulClientFactory().setPoolMaxTotal(poolMaxTotal);
 
     IGenericClient client = fhirContext.getRestfulClientFactory().newGenericClient(fhirUrl);
     if (authInterceptor != null) {

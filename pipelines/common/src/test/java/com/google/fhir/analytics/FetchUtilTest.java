@@ -19,6 +19,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import ca.uhn.fhir.context.FhirContext;
@@ -67,6 +68,8 @@ public class FetchUtilTest {
             fhirContext);
 
     doNothing().when(clientFactory).setSocketTimeout(any(Integer.class));
+    doNothing().when(clientFactory).setConnectTimeout(any(Integer.class));
+    doNothing().when(clientFactory).setPoolMaxTotal(any(Integer.class));
     when(fhirContext.getRestfulClientFactory()).thenReturn(clientFactory);
     when(fhirContext.getRestfulClientFactory().newGenericClient(SOURCE_FHIR_URL))
         .thenReturn(client);
@@ -94,5 +97,28 @@ public class FetchUtilTest {
     IGenericClient result = fetchUtil.getSourceClient();
 
     assertThat(result, equalTo(client));
+  }
+
+  @SuppressWarnings("DirectInvocationOnMock")
+  @Test
+  public void shouldApplyCustomTimeouts() {
+    FetchUtil customFetchUtil =
+        new FetchUtil(
+            SOURCE_FHIR_URL,
+            "someuser",
+            "somepw",
+            "someOAuthEndpoint",
+            "someOAuthClient",
+            "someOAuthSecret",
+            true,
+            fhirContext,
+            60000,
+            15000,
+            50);
+    customFetchUtil.getSourceClient();
+
+    verify(clientFactory).setSocketTimeout(60000);
+    verify(clientFactory).setConnectTimeout(15000);
+    verify(clientFactory).setPoolMaxTotal(50);
   }
 }
