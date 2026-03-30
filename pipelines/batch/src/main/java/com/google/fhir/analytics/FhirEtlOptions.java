@@ -177,6 +177,28 @@ public interface FhirEtlOptions extends BasePipelineOptions {
 
   void setFhirDatabaseConfigPath(String value);
 
+  @Description(
+      "HTTP socket timeout in seconds for FHIR server API calls. "
+          + "This is the maximum time to wait for data after the connection is established.")
+  @Default.Integer(200)
+  int getHttpSocketTimeoutSec();
+
+  void setHttpSocketTimeoutSec(int value);
+
+  @Description("HTTP connection timeout in seconds for establishing connections to FHIR servers.")
+  @Default.Integer(30)
+  int getHttpConnectTimeoutSec();
+
+  void setHttpConnectTimeoutSec(int value);
+
+  @Description(
+      "Maximum total number of HTTP connections in the connection pool for FHIR server calls. "
+          + "Increase this when using multiple FHIR source servers.")
+  @Default.Integer(30)
+  int getHttpPoolMaxTotal();
+
+  void setHttpPoolMaxTotal(int value);
+
   @Description("Flag to switch between the 2 modes of batch extract")
   @Default.Boolean(false)
   Boolean isJdbcModeEnabled();

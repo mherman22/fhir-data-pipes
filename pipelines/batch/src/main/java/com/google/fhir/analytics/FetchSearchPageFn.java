@@ -112,6 +112,12 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
 
   private final int maxPoolSize;
 
+  private final int httpSocketTimeoutMs;
+
+  private final int httpConnectTimeoutMs;
+
+  private final int httpPoolMaxTotal;
+
   @VisibleForTesting @Nullable protected ParquetUtil parquetUtil;
 
   protected FetchUtil fetchUtil;
@@ -178,6 +184,9 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
       }
     }
     this.maxPoolSize = options.getJdbcMaxPoolSize();
+    this.httpSocketTimeoutMs = options.getHttpSocketTimeoutSec() * 1000;
+    this.httpConnectTimeoutMs = options.getHttpConnectTimeoutSec() * 1000;
+    this.httpPoolMaxTotal = options.getHttpPoolMaxTotal();
     this.numFetchedResources =
         Metrics.counter(
             MetricsConstants.METRICS_NAMESPACE,
@@ -210,7 +219,9 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
         // Note `IIdType.getIdPart` extracts only the logical ID part when exporting but that code
         // path does not work for URNs (e.g., when importing files).
         new ParserOptions().setOverrideResourceIdWithBundleEntryFullUrl(false));
-    fhirContext.getRestfulClientFactory().setSocketTimeout(40000);
+    fhirContext.getRestfulClientFactory().setSocketTimeout(httpSocketTimeoutMs);
+    fhirContext.getRestfulClientFactory().setConnectTimeout(httpConnectTimeoutMs);
+    fhirContext.getRestfulClientFactory().setPoolMaxTotal(httpPoolMaxTotal);
     // Note this parser is not used when fetching resources from a HAPI server. That's why we need
     // to change the `setOverrideResourceIdWithBundleEntryFullUrl` globally above such that the
     // parsers used in the HAPI client code is impacted too.
@@ -227,7 +238,10 @@ abstract class FetchSearchPageFn<T> extends DoFn<T, KV<String, Integer>> {
             oAuthClientId,
             oAuthClientSecret,
             checkPatientEndpoint,
-            fhirContext);
+            fhirContext,
+            httpSocketTimeoutMs,
+            httpConnectTimeoutMs,
+            httpPoolMaxTotal);
     Preconditions.checkNotNull(fetchUtil);
     fhirSearchUtil = new FhirSearchUtil(fetchUtil);
     // TODO remove generateParquetFiles and instead rely on not setting outputParquetPath.

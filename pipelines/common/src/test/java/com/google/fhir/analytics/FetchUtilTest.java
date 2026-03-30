@@ -67,6 +67,8 @@ public class FetchUtilTest {
             fhirContext);
 
     doNothing().when(clientFactory).setSocketTimeout(any(Integer.class));
+    doNothing().when(clientFactory).setConnectTimeout(any(Integer.class));
+    doNothing().when(clientFactory).setPoolMaxTotal(any(Integer.class));
     when(fhirContext.getRestfulClientFactory()).thenReturn(clientFactory);
     when(fhirContext.getRestfulClientFactory().newGenericClient(SOURCE_FHIR_URL))
         .thenReturn(client);
